@@ -6,6 +6,8 @@ from tensorflow.keras.preprocessing.image import load_img, img_to_array
 from tensorflow.keras.applications.vgg16 import preprocess_input, VGG16
 from tensorflow.keras.models import Model
 from sklearn.decomposition import PCA
+from skimage.feature import hog
+from skimage.filters import sobel
 
 # Load models and pre-trained objects
 @st.cache(allow_output_mutation=True)
@@ -43,9 +45,27 @@ def extract_features(image_path, model):
         st.error(f"Error processing image: {e}")
     return features
 
-st.title('Image Classification')
+# Function to extract HOG features and perform edge detection on an image
+def extract_hog_and_edge(image):
+    # Convert image to grayscale
+    gray_image = image.convert('L')
+    
+    # Extract HOG features
+    hog_features, hog_image = hog(np.array(gray_image), orientations=10, pixels_per_cell=(12, 12),
+                                   cells_per_block=(1, 1), visualize=True)
+    
+    # Normalize the HOG image array
+    hog_image = (hog_image - hog_image.min()) / (hog_image.max() - hog_image.min())
+    
+    # Perform edge detection using the Sobel operator
+    edge_image = sobel(np.array(gray_image))
+    
+    return hog_image, edge_image
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+# UI
+st.title('Fashion Image Classifier')
+
+uploaded_file = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption='Uploaded Image', use_column_width=True)
@@ -58,6 +78,7 @@ if uploaded_file is not None:
 
     if features:
         st.write("Features extracted successfully.")
+        
         if st.button('Predict'):
             try:
                 # Transform features using PCA
@@ -70,8 +91,46 @@ if uploaded_file is not None:
                 decoded_label = le.inverse_transform(predicted_label)
                 
                 # Display prediction
-                st.write(f'Prediction: {decoded_label[0]}')
+                st.success(f'Prediction: {decoded_label[0]}')
             except Exception as e:
                 st.error(f"Error predicting: {e}")
-    else:
-        st.warning("No features extracted.")
+    
+    # Display buttons for HOG image, edge detection image, and prediction
+    col1, col2, col3 = st.columns(3)
+    show_hog = col1.button('HOG Image')
+    show_edge = col2.button('Edge Detection Image')
+    show_prediction = col3.button('Prediction')
+
+    hog_image, edge_image = None, None
+
+    if show_hog:
+        hog_image, _ = extract_hog_and_edge(image)
+
+    if show_edge:
+        _, edge_image = extract_hog_and_edge(image)
+
+    if show_hog or show_edge:
+        col1, col2 = st.columns(2)
+        if hog_image is not None:
+            col1.image(hog_image, caption='HOG Image', use_column_width=True)
+        if edge_image is not None:
+            col2.image(edge_image, caption='Edge Detection Image', use_column_width=True)
+
+    if show_prediction:
+        if features:
+            try:
+                # Transform features using PCA
+                test = pca.transform(features[image_location])
+                
+                # Make prediction using SVM model
+                predicted_label = svm_model.predict(test)
+                
+                # Decode predicted label
+                decoded_label = le.inverse_transform(predicted_label)
+                
+                # Display prediction
+                st.success(f'Prediction: {decoded_label[0]}')
+            except Exception as e:
+                st.error(f"Error predicting: {e}")
+        else:
+            st.warning("No features extracted.")
